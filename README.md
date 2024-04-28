@@ -1,5 +1,5 @@
 # Billiars Pool Game
-Description
+Description.
 
 ## How to Use
 
