@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <style>
+    body {
+      overflow-y: hidden;
+      background-color: rgba(241, 247, 245, 0.959);
+      font-family: Arial;
+    }
+    /* styles for line + table SVGs  */
+    #table {
+      margin-left: 38.7%;
+      width: 850px;
+      height: auto;
+      top: 5%; 
+      position: absolute;
+    }
+    #player1 {
+      position: absolute;
+      left: 450px; 
+      top: 300px; 
+      font-size: 24px;
+      font-weight: bold;
+    }
+    #player2  {
+      position: absolute;
+      right: 450px; 
+      top: 300px; 
+      font-size: 24px; 
+      font-weight: bold;
+    }
+  </style>
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.3/jquery.min.js"></script>
+  <script>
+    var frameIndex = 0;
+    var animationInterval;
+    var player1Name, player2Name;
+    var statusUpdated = false;
+
+    // function to request SVG files and update the animation
+    function animateShot(velx, vely) {
+
+      // make an HTTP POST request to server.py to add the shot to the database
+      $.post("/shoot", { velocityX: velx, velocityY: vely })
+        .done(function(response) {
+          // split the received string into an array of SVGs
+          var data = JSON.parse(response)
+          var svgContentsArray = data.svgContent.split("<!-- SVG DELIMITER -->");
+
+          // reset frame index
+          frameIndex = 0;
+
+          // update animation at regular intervals
+          animationInterval = setInterval(function() {
+            if (frameIndex < svgContentsArray.length) {
+
+              // replace the table SVG with the new one
+              $("#table").html(svgContentsArray[frameIndex]);
+              frameIndex++;
+
+              // bind event listeners for the next shot
+              bindEventListeners();
+
+            } else {
+              // stop animation when all frames have been displayed
+              clearInterval(animationInterval);
+
+              // update the current player's name
+              $("#currentPlayer").text("Current Turn: " + data.currentPlayer);
+              console.log("CURRENT: " + data.currentPlayer)
+              console.log("LOW: " + data.lowPlayer)
+              console.log("HIGH: " + data.highPlayer)
+              console.log("PREVIOUS: " + data.previousPlayer)
+              
+              if (!statusUpdated) {
+                if (data.lowPlayer == 'None' && data.highPlayer == 'None') {
+                  $("#player1Status").text("None");
+                  $("#player2Status").text("None");
+                } 
+                else if (data.lowPlayer == data.previousPlayer) { // compare lowPlayer with previousPlayer
+                  $("#player1Status").text("SOLIDS: LOW").css("color", "darkgreen");
+                  $("#player2Status").text("STRIPES: HIGH").css("color", "darkgreen");
+                  statusUpdated = true;
+                } 
+                else {
+                  $("#player1Status").text("STRIPES: HIGH").css("color", "darkgreen");
+                  $("#player2Status").text("SOLIDS: LOW").css("color", "darkgreen");
+                  statusUpdated = true;
+                }
+              }
+              // check for winner and display alert
+              console.log(data.winner)
+              if (data.winner) {
+                Swal.fire({
+                  title: 'Congratulations!',
+                  text: 'Winner: ' + data.winner,
+                  icon: 'success',
+                  confirmButtonText: 'OK'
+                }).then((result) => {
+                  if (result.isConfirmed) {
+                    window.location.href = "/";
+                  }
+                });
+              }
+            }
+          }, 13); // change the frame every 12 milliseconds
+        })
+        .fail(function() {
+          console.error("Failed to load SVG contents.");
+        });
+    }
+
+    $(document).ready(function() {
+      // bind event listeners when the document is ready
+      bindEventListeners();
+    });
+
+    // function to bind event listeners
+    function bindEventListeners() {
+      var track = false;
+      var cueBall;
+      var table;
+      var startX, startY;
+
+      cueBall = document.getElementById('cue-ball');
+      table = document.querySelector('svg');
+
+      // event listener for mouse down (click) on the cue ball element
+      $('#cue-ball').mousedown(function(event) {
+        // getting the SVG element where the cue ball is placed and create a new SVG point
+        var pt = table.createSVGPoint();
+        pt.x = event.clientX;
+        pt.y = event.clientY;
+
+        var pt = pt.matrixTransform(table.getScreenCTM().inverse());
+        startX = pt.x;
+        startY = pt.y;
+        track = true;
+      });
+
+      // event listener for mouse movement
+      $(document).mousemove(function(event) {
+
+        if (track) {
+          // remove the previous line and then get the line SVG element
+          $('#line').remove();
+
+          var line = document.createElementNS('http://www.w3.org/2000/svg', 'line'); // Create new line element
+          
+          // set the style attributes for the line element
+          line.setAttribute('id', 'line');
+          line.setAttribute('stroke', 'brown');
+          line.setAttribute('stroke-width', '8');
+          
+          var cueBallX = parseInt(cueBall.getAttribute("cx"));
+          var cueBallY = parseInt(cueBall.getAttribute("cy"));
+
+          // set the coords of the point to the current mouse position and transform the screen coords to SVG coords
+          var pt = table.createSVGPoint();
+          pt.x = event.clientX;
+          pt.y = event.clientY;
+
+          var svgP = pt.matrixTransform(table.getScreenCTM().inverse());
+
+          line.setAttribute('x1', startX);
+          line.setAttribute('y1', startY);
+          line.setAttribute('x2', svgP.x);
+          line.setAttribute('y2', svgP.y);
+          
+          // append the line onto the SVG
+          table.appendChild(line);
+        }
+      });
+
+      // event listener for mouse up (release)
+      $(document).mouseup(function(event) {
+
+        if (track) {
+          // reset track var
+          track = false;
+
+          // remove the previous line
+          $('#line').remove();
+
+          // get the cue ball position
+          var cueBall = $('#cue-ball');
+          var cueBallX = cueBall.offset().left + cueBall.width() / 2;
+          var cueBallY = cueBall.offset().top + cueBall.height() / 2;
+
+          // calculate the distance between initial cue ball position and final mouse position
+          var dx = event.clientX - cueBallX;
+          var dy = event.clientY - cueBallY;
+          var distance = Math.sqrt(dx * dx + dy * dy);
+
+          // calculate the angle of the shot
+          var angle = Math.atan2(dy, dx);
+
+          // calculate the power of the shot based on the distance of the mouse drag
+          var power = Math.min(distance, 500) / 500;
+
+          // calculate the initial velocity components (x and y)
+          var velx = power * 10000 * Math.cos(angle);
+          var vely = power * 10000 * Math.sin(angle);
+
+          // introduce a threshold for the angle
+          var threshold = 0.08;
+
+          // if the angle is within the threshold around 0 or pi, set y velocity to 0
+          if ((angle > -threshold && angle < threshold) || (angle > Math.PI - threshold || angle < -Math.PI + threshold)) {
+            vely = 0;
+          }
+
+          // if the angle is within the threshold around pi/2, set x velocity to 0
+          if ((angle > Math.PI/2 - threshold && angle < Math.PI/2 + threshold) || (angle > -Math.PI/2 - threshold && angle < -Math.PI/2 + threshold)) {
+            velx = 0;
+          }
+
+          console.log('velocityX:', velx, 'velocityY:', vely);
+
+          // call the function to animate the shot
+          animateShot(-velx, -vely);
+        }
+      });
+    }
+  </script>
+</head>
+<body>
+  <svg id="table" viewBox="0 0 1400 2700">
+    <!-- SVG_PLACEHOLDER -->
+  </svg>
+  <div id="player1">
+    <!-- Player One -->
+    <div id="player1Status"></div> <!-- New div for player 1 status -->
+  </div>
+  <div id="player2">
+    <!-- Player Two -->
+    <div id="player2Status"></div> <!-- New div for player 2 status -->
+  </div>
+  <div id="currentPlayer" style="font-weight: bold; margin-left: 775px; margin-top: 5px; font-size: 24px;">
+    <!-- Current Player -->
+  </div>
+</body>
+</html>
